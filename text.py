@@ -3,44 +3,35 @@ from transformers import pipeline
 from sentence_transformers import SentenceTransformer, util
 import PyPDF2
 
-# -----------------------------
-# Title
-# -----------------------------
 st.title("GenAI App with PDF/Text Input")
 
-# -----------------------------
-# Input Choice
-# -----------------------------
-input_choice = st.radio(
-    "Select Input Type:",
-    ["Upload PDF", "Write Text"]
-)
+# -----------------------------------
+# INPUT SECTION
+# -----------------------------------
+input_choice = st.radio("Select Input Type:", ["Upload PDF", "Write Text"])
 
-# -----------------------------
-# TEXT EXTRACTION
-# -----------------------------
 text = ""
 
 if input_choice == "Upload PDF":
-    pdf_file = st.file_uploader("Upload PDF File", type=["pdf"])
-
+    pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
     if pdf_file:
         reader = PyPDF2.PdfReader(pdf_file)
         for page in reader.pages:
-            text += page.extract_text()
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + "\n"
 
-        st.subheader("Extracted Text:")
-        st.write(text)
+        st.write("### Extracted Text:")
+        st.write(text if text else "**No readable text found in PDF.**")
 
-elif input_choice == "Write Text":
-    text = st.text_area("Enter your text here:")
+else:
+    text = st.text_area("Enter your text:")
 
-
-# -----------------------------
-# Select GenAI Task
-# -----------------------------
+# -----------------------------------
+# TASK SELECTION
+# -----------------------------------
 task = st.selectbox(
-    "Choose a GenAI Task",
+    "Choose a Task",
     [
         "Generate Text (GPT2)",
         "Summarize Text",
@@ -49,72 +40,72 @@ task = st.selectbox(
         "Translation (English → French)",
         "Paraphrasing",
         "Grammar Correction",
-        "Sentence Similarity (enter 2nd sentence)",
+        "Sentence Similarity",
     ]
 )
 
-# Load models
-gen = pipeline("text-generation", model="gpt2")
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-sentiment = pipeline("sentiment-analysis")
-ner = pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple")
-translate = pipeline("translation", model="helsinki-NLP/opus-mt-en-fr")
-para = pipeline("text2text-generation", model="t5-small")
-gc = pipeline("text2text-generation", model="prithivida/grammar_error_correcter_v1")
-embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+# -----------------------------------
+# MODELS (Loaded Once)
+# -----------------------------------
+@st.cache_resource
+def load_models():
+    return {
+        "gen": pipeline("text-generation", model="gpt2"),
+        "sum": pipeline("summarization", model="facebook/bart-large-cnn"),
+        "sent": pipeline("sentiment-analysis"),
+        "ner": pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple"),
+        "trans": pipeline("translation", model="helsinki-NLP/opus-mt-en-fr"),
+        "para": pipeline("text2text-generation", model="t5-small"),
+        "gc": pipeline("text2text-generation", model="prithivida/grammar_error_correcter_v1"),
+        "embed": SentenceTransformer("all-MiniLM-L6-v2")
+    }
 
+models = load_models()
 
-# -----------------------------
-# Run Button
-# -----------------------------
-if st.button("Run"):
+# -----------------------------------
+# RUN TASK
+# -----------------------------------
+st.write("### Output:")
 
-    if not text.strip():
-        st.error("Please upload a PDF or enter some text.")
-    else:
+if text.strip():
 
-        # Generate Text
-        if task == "Generate Text (GPT2)":
-            result = gen(text, max_length=300)[0]["generated_text"]
-            st.write(result)
+    if task == "Generate Text (GPT2)":
+        output = models["gen"](text, max_length=300)[0]["generated_text"]
+        st.write(output)
 
-        # Summarization
-        elif task == "Summarize Text":
-            result = summarizer(text, max_length=120, min_length=40)[0]["summary_text"]
-            st.write(result)
+    elif task == "Summarize Text":
+        output = models["sum"](text, max_length=120, min_length=40)[0]["summary_text"]
+        st.write(output)
 
-        # Sentiment
-        elif task == "Sentiment Analysis":
-            result = sentiment(text)
-            st.write(result)
+    elif task == "Sentiment Analysis":
+        output = models["sent"](text)
+        st.json(output)
 
-        # NER
-        elif task == "Named Entity Recognition":
-            result = ner(text)
-            st.write(result)
+    elif task == "Named Entity Recognition":
+        output = models["ner"](text)
+        st.json(output)
 
-        # Translation
-        elif task == "Translation (English → French)":
-            result = translate(text)[0]["translation_text"]
-            st.write(result)
+    elif task == "Translation (English → French)":
+        output = models["trans"](text)[0]["translation_text"]
+        st.write(output)
 
-        # Paraphrasing
-        elif task == "Paraphrasing":
-            result = para("paraphrase: " + text)[0]["generated_text"]
-            st.write(result)
+    elif task == "Paraphrasing":
+        output = models["para"]("paraphrase: " + text)[0]["generated_text"]
+        st.write(output)
 
-        # Grammar Correction
-        elif task == "Grammar Correction":
-            result = gc(text)[0]["generated_text"]
-            st.write(result)
+    elif task == "Grammar Correction":
+        output = models["gc"](text)[0]["generated_text"]
+        st.write(output)
 
-        # Sentence Similarity
-        elif task == "Sentence Similarity (enter 2nd sentence)":
-            text2 = st.text_input("Enter Second Sentence:")
-            if text2:
-                vec1 = embed_model.encode(text, convert_to_tensor=True)
-                vec2 = embed_model.encode(text2, convert_to_tensor=True)
-                score = util.pytorch_cos_sim(vec1, vec2).item()
-                st.write(f"Similarity Score: {score}")
-            else:
-                st.warning("Please enter the second sentence.")
+    elif task == "Sentence Similarity":
+        text2 = st.text_input("Enter second sentence:")
+        if text2:
+            a = models["embed"].encode(text, convert_to_tensor=True)
+            b = models["embed"].encode(text2, convert_to_tensor=True)
+            score = util.pytorch_cos_sim(a, b).item()
+            st.write(f"Similarity Score: {score}")
+        else:
+            st.write("Enter second sentence to calculate similarity.")
+
+else:
+    st.info("Upload a PDF or enter text above to see output.")
